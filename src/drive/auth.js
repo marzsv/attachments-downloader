@@ -84,7 +84,10 @@ function saveCredentials(tokens) {
 // Generate the url that will be used for authorization
 const authorizeUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: 'https://www.googleapis.com/auth/drive.file',
+    scope: [
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/gmail.readonly'
+    ],
     prompt: 'consent',
     include_granted_scopes: true
 });
