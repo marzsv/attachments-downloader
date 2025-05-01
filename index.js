@@ -1,4 +1,5 @@
-import { getAccessToken, uploadFile, downloadFile } from './googleDriveOAuth.js';
+import { getAccessToken } from './src/drive/auth.js';
+import { uploadFile, downloadFile } from './src/drive/files.js';
 
 async function main() {
     try {
@@ -17,7 +18,7 @@ async function main() {
 
         // Download the same file
         // console.log('\n=== Downloading File ===');
-        // await downloadFile(fileId, 'downloaded_image2.jpg');
+        // await downloadFile(fileId, 'downloaded_image2.png');
 
         console.log('\nAll operations completed successfully!');
     } catch (error) {
