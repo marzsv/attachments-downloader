@@ -4,20 +4,55 @@ import { oauth2Client, getAccessToken } from './src/drive/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Parse command line arguments
+const argv = yargs(hideBin(process.argv))
+    .option('month', {
+        alias: 'm',
+        description: 'Month to fetch emails from (1-12)',
+        type: 'number',
+        demandOption: true
+    })
+    .option('year', {
+        alias: 'y',
+        description: 'Year to fetch emails from',
+        type: 'number',
+        default: new Date().getFullYear()
+    })
+    .check((argv) => {
+        if (argv.month < 1 || argv.month > 12) {
+            throw new Error('Month must be between 1 and 12');
+        }
+        return true;
+    })
+    .help()
+    .alias('help', 'h')
+    .argv;
+
 // Configuration options
 const config = {
     createSubfolders: false, // Set to true to create a subfolder for each email
-    attachmentsDir: path.join(__dirname, 'attachments')
+    baseAttachmentsDir: path.join(__dirname, 'attachments')
 };
 
-// Create attachments directory if it doesn't exist
-if (!fs.existsSync(config.attachmentsDir)) {
-    fs.mkdirSync(config.attachmentsDir);
+// Create base attachments directory if it doesn't exist
+if (!fs.existsSync(config.baseAttachmentsDir)) {
+    fs.mkdirSync(config.baseAttachmentsDir);
 }
+
+// Create year-month directory
+const yearMonthDir = path.join(config.baseAttachmentsDir, `${argv.year}-${String(argv.month).padStart(2, '0')}`);
+if (!fs.existsSync(yearMonthDir)) {
+    fs.mkdirSync(yearMonthDir);
+}
+
+// Update attachments directory in config
+config.attachmentsDir = yearMonthDir;
 
 /**
  * Checks if an email has attachments
@@ -40,6 +75,16 @@ function isJsonAttachment(part) {
 }
 
 /**
+ * Checks if an attachment is a PDF file
+ * @param {Object} part - The email part containing the attachment
+ * @returns {boolean} - True if the attachment is a PDF file
+ */
+function isPdfAttachment(part) {
+    if (!part.filename) return false;
+    return part.filename.toLowerCase().endsWith('.pdf');
+}
+
+/**
  * Checks if an email has JSON attachments
  * @param {Object} email - The email object
  * @returns {boolean} - True if the email has JSON attachments
@@ -47,6 +92,25 @@ function isJsonAttachment(part) {
 function hasJsonAttachments(email) {
     if (!email.payload.parts) return false;
     return email.payload.parts.some(part => isJsonAttachment(part) && part.body.attachmentId);
+}
+
+/**
+ * Checks if an email has PDF attachments
+ * @param {Object} email - The email object
+ * @returns {boolean} - True if the email has PDF attachments
+ */
+function hasPdfAttachments(email) {
+    if (!email.payload.parts) return false;
+    return email.payload.parts.some(part => isPdfAttachment(part) && part.body.attachmentId);
+}
+
+/**
+ * Checks if an email has JSON or PDF attachments
+ * @param {Object} email - The email object
+ * @returns {boolean} - True if the email has JSON or PDF attachments
+ */
+function hasJsonOrPdfAttachments(email) {
+    return hasJsonAttachments(email) || hasPdfAttachments(email);
 }
 
 /**
@@ -151,14 +215,14 @@ async function main() {
         // Ensure we have valid credentials
         await getAccessToken();
 
-        // Get emails from April 2025
-        const startDate = new Date('2025-04-01T00:00:00Z');
-        const endDate = new Date('2025-04-30T23:59:59Z');
+        // Calculate start and end dates based on provided month and year
+        const startDate = new Date(argv.year, argv.month - 1, 1, 0, 0, 0);
+        const endDate = new Date(argv.year, argv.month, 0, 23, 59, 59);
 
-        console.log('Obteniendo emails de abril 2025...');
+        console.log(`Obteniendo emails de ${startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}...`);
         const messages = await getEmailsInDateRange(startDate, endDate);
 
-        console.log(`Se encontraron ${messages.length} emails en abril 2025`);
+        console.log(`Se encontraron ${messages.length} emails en ${startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}`);
 
         let processedEmails = 0;
         let emailsWithJsonAttachments = 0;
@@ -182,7 +246,7 @@ async function main() {
         console.log('\nProceso completado.');
         console.log(`Total emails procesados: ${processedEmails}`);
         console.log(`Emails con archivos JSON: ${emailsWithJsonAttachments}`);
-        console.log('Los archivos adjuntos se han guardado en la carpeta "attachments"');
+        console.log(`Los archivos adjuntos se han guardado en la carpeta "${path.relative(__dirname, config.attachmentsDir)}"`);
     } catch (error) {
         console.error('Error:', error.message);
     }
