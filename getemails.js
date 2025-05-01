@@ -30,6 +30,26 @@ function hasAttachments(email) {
 }
 
 /**
+ * Checks if an attachment is a JSON file
+ * @param {Object} part - The email part containing the attachment
+ * @returns {boolean} - True if the attachment is a JSON file
+ */
+function isJsonAttachment(part) {
+    if (!part.filename) return false;
+    return part.filename.toLowerCase().endsWith('.json');
+}
+
+/**
+ * Checks if an email has JSON attachments
+ * @param {Object} email - The email object
+ * @returns {boolean} - True if the email has JSON attachments
+ */
+function hasJsonAttachments(email) {
+    if (!email.payload.parts) return false;
+    return email.payload.parts.some(part => isJsonAttachment(part) && part.body.attachmentId);
+}
+
+/**
  * Downloads attachments from an email
  * @param {Object} email - The email object containing attachments
  * @param {string} emailId - The ID of the email
@@ -141,7 +161,7 @@ async function main() {
         console.log(`Se encontraron ${messages.length} emails en abril 2025`);
 
         let processedEmails = 0;
-        let emailsWithAttachments = 0;
+        let emailsWithJsonAttachments = 0;
 
         // Process each email
         for (const message of messages) {
@@ -150,8 +170,8 @@ async function main() {
 
             try {
                 const fullEmail = await getEmailById(message.id);
-                if (hasAttachments(fullEmail)) {
-                    emailsWithAttachments++;
+                if (hasJsonAttachments(fullEmail)) {
+                    emailsWithJsonAttachments++;
                     await downloadAttachments(fullEmail, message.id);
                 }
             } catch (error) {
@@ -161,7 +181,7 @@ async function main() {
 
         console.log('\nProceso completado.');
         console.log(`Total emails procesados: ${processedEmails}`);
-        console.log(`Emails con adjuntos: ${emailsWithAttachments}`);
+        console.log(`Emails con archivos JSON: ${emailsWithJsonAttachments}`);
         console.log('Los archivos adjuntos se han guardado en la carpeta "attachments"');
     } catch (error) {
         console.error('Error:', error.message);
