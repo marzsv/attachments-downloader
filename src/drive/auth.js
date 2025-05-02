@@ -54,7 +54,6 @@ async function loadSavedCredentialsIfExist() {
             try {
                 const drive = google.drive({ version: 'v3', auth: oauth2Client });
                 await drive.files.list({ pageSize: 1 });
-                console.log('Using saved credentials');
                 return true;
             } catch (error) {
                 console.log('Saved credentials are invalid, will refresh');

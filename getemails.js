@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-
+import { createSubfolder, removeSubfolder } from './src/utils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -23,6 +23,12 @@ const argv = yargs(hideBin(process.argv))
         description: 'Year to fetch emails from',
         type: 'number',
         default: new Date().getFullYear()
+    })
+    .option('verbose', {
+        alias: 'v',
+        description: 'Verbose output',
+        type: 'boolean',
+        default: false
     })
     .check((argv) => {
         if (argv.month < 1 || argv.month > 12) {
@@ -129,10 +135,7 @@ async function downloadAttachments(email, emailId) {
 
     // Create email subfolder if configured
     if (config.createSubfolders) {
-        emailDir = path.join(config.attachmentsDir, emailId);
-        if (!fs.existsSync(emailDir)) {
-            fs.mkdirSync(emailDir);
-        }
+        emailDir = createSubfolder(emailId);
     }
 
     for (const part of email.payload.parts) {
@@ -145,7 +148,10 @@ async function downloadAttachments(email, emailId) {
                 : `${emailId}_${part.filename}`;
 
             const attachmentPath = path.join(emailDir, filename);
-            console.log(`Downloading attachment: ${filename}`);
+
+            if (argv.verbose) {
+                console.log(`Downloading attachment: ${filename}`);
+            }
 
             try {
                 const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
@@ -157,7 +163,11 @@ async function downloadAttachments(email, emailId) {
 
                 const fileData = Buffer.from(response.data.data, 'base64');
                 fs.writeFileSync(attachmentPath, fileData);
-                console.log(`Saved attachment to: ${attachmentPath}`);
+
+                if (argv.verbose) {
+                    console.log(`Saved attachment to: ${attachmentPath}`);
+                }
+
                 attachmentCount++;
             } catch (error) {
                 console.error(`Error downloading attachment ${filename}:`, error.message);
@@ -167,7 +177,7 @@ async function downloadAttachments(email, emailId) {
 
     // Remove empty subfolder if no attachments were downloaded
     if (config.createSubfolders && attachmentCount === 0 && emailDir !== config.attachmentsDir) {
-        fs.rmdirSync(emailDir);
+        removeSubfolder(emailId);
     }
 }
 
@@ -185,11 +195,14 @@ async function getEmailsInDateRange(startDate, endDate) {
     while (hasMore) {
         try {
             const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+            const afterDate = Math.floor(startDate.getTime() / 1000);
+            const beforeDate = Math.floor(endDate.getTime() / 1000);
+
             const response = await gmail.users.messages.list({
                 userId: 'me',
                 maxResults: 100,
                 pageToken: pageToken,
-                q: `has:attachment after:${Math.floor(startDate.getTime() / 1000)} before:${Math.floor(endDate.getTime() / 1000)}`
+                q: `has:attachment after:${afterDate} before:${beforeDate} filename:json`
             });
 
             const messages = response.data.messages || [];
@@ -218,26 +231,26 @@ async function main() {
         // Calculate start and end dates based on provided month and year
         const startDate = new Date(argv.year, argv.month - 1, 1, 0, 0, 0);
         const endDate = new Date(argv.year, argv.month, 0, 23, 59, 59);
+        const from = startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
 
-        console.log(`Obteniendo emails de ${startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}...`);
+        console.log(`Obteniendo emails de ${from}...`);
         const messages = await getEmailsInDateRange(startDate, endDate);
 
-        console.log(`Se encontraron ${messages.length} emails en ${startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}`);
+        console.log(`Se encontraron ${messages.length} emails en ${from}...`);
 
         let processedEmails = 0;
-        let emailsWithJsonAttachments = 0;
 
         // Process each email
         for (const message of messages) {
             processedEmails++;
-            console.log(`\nProcesando email ${processedEmails}/${messages.length}`);
+
+            if (argv.verbose) {
+                console.log(`\nProcesando email ${processedEmails}/${messages.length}`);
+            }
 
             try {
                 const fullEmail = await getEmailById(message.id);
-                if (hasJsonAttachments(fullEmail)) {
-                    emailsWithJsonAttachments++;
-                    await downloadAttachments(fullEmail, message.id);
-                }
+                await downloadAttachments(fullEmail, message.id);
             } catch (error) {
                 console.error(`Error processing email: ${error.message}`);
             }
@@ -245,7 +258,6 @@ async function main() {
 
         console.log('\nProceso completado.');
         console.log(`Total emails procesados: ${processedEmails}`);
-        console.log(`Emails con archivos JSON: ${emailsWithJsonAttachments}`);
         console.log(`Los archivos adjuntos se han guardado en la carpeta "${path.relative(__dirname, config.attachmentsDir)}"`);
     } catch (error) {
         console.error('Error:', error.message);
