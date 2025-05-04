@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { createSubfolder, removeSubfolder } from './src/utils.js';
+import cliProgress from 'cli-progress';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -59,6 +60,14 @@ if (!fs.existsSync(yearMonthDir)) {
 
 // Update attachments directory in config
 config.attachmentsDir = yearMonthDir;
+
+// Create a single progress bar instance
+const progressBar = new cliProgress.SingleBar({
+    format: 'Downloading attachments | {bar} | {percentage}% | {value}/{total} files',
+    barCompleteChar: '\u2588',
+    barIncompleteChar: '\u2591',
+    hideCursor: true
+});
 
 /**
  * Checks if an email has attachments
@@ -123,11 +132,14 @@ function hasJsonOrPdfAttachments(email) {
  * Downloads attachments from an email
  * @param {Object} email - The email object containing attachments
  * @param {string} emailId - The ID of the email
+ * @param {number} currentCount - Current count of downloaded attachments
+ * @param {cliProgress.SingleBar} progressBar - The progress bar instance
+ * @returns {Promise<number>} - Updated count of downloaded attachments
  */
-async function downloadAttachments(email, emailId) {
+async function downloadAttachments(email, emailId, currentCount, progressBar) {
     if (!hasAttachments(email)) {
         console.log('No attachments found in this email');
-        return;
+        return currentCount;
     }
 
     let attachmentCount = 0;
@@ -169,6 +181,8 @@ async function downloadAttachments(email, emailId) {
                 }
 
                 attachmentCount++;
+                // Update progress bar
+                progressBar.update(currentCount + attachmentCount);
             } catch (error) {
                 console.error(`Error downloading attachment ${filename}:`, error.message);
             }
@@ -179,6 +193,8 @@ async function downloadAttachments(email, emailId) {
     if (config.createSubfolders && attachmentCount === 0 && emailDir !== config.attachmentsDir) {
         removeSubfolder(emailId);
     }
+
+    return currentCount + attachmentCount;
 }
 
 /**
@@ -231,33 +247,55 @@ async function main() {
         // Calculate start and end dates based on provided month and year
         const startDate = new Date(argv.year, argv.month - 1, 1, 0, 0, 0);
         const endDate = new Date(argv.year, argv.month, 0, 23, 59, 59);
-        const from = startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
 
-        console.log(`Obteniendo emails de ${from}...`);
+        const monthYear = startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
+        console.log(`Obteniendo emails de ${monthYear}...`);
         const messages = await getEmailsInDateRange(startDate, endDate);
 
-        console.log(`Se encontraron ${messages.length} emails en ${from}...`);
+        console.log(`Se encontraron ${messages.length} emails en ${monthYear}`);
 
         let processedEmails = 0;
+        let emailsWithJsonAttachments = 0;
+        let totalAttachments = 0;
 
-        // Process each email
+        // First, count total attachments to set up progress bar
         for (const message of messages) {
-            processedEmails++;
-
-            if (argv.verbose) {
-                console.log(`\nProcesando email ${processedEmails}/${messages.length}`);
-            }
-
             try {
                 const fullEmail = await getEmailById(message.id);
-                await downloadAttachments(fullEmail, message.id);
+                if (hasJsonAttachments(fullEmail)) {
+                    emailsWithJsonAttachments++;
+                    totalAttachments += fullEmail.payload.parts.filter(part => part.filename && part.body.attachmentId).length;
+                }
             } catch (error) {
                 console.error(`Error processing email: ${error.message}`);
             }
         }
 
+        // Start progress bar
+        progressBar.start(totalAttachments, 0);
+
+        // Process each email
+        let downloadedAttachments = 0;
+        for (const message of messages) {
+            processedEmails++;
+
+            try {
+                const fullEmail = await getEmailById(message.id);
+                if (hasJsonAttachments(fullEmail)) {
+                    downloadedAttachments = await downloadAttachments(fullEmail, message.id, downloadedAttachments, progressBar);
+                }
+            } catch (error) {
+                console.error(`Error processing email: ${error.message}`);
+            }
+        }
+
+        // Stop progress bar
+        progressBar.stop();
+
         console.log('\nProceso completado.');
         console.log(`Total emails procesados: ${processedEmails}`);
+        console.log(`Emails con archivos JSON: ${emailsWithJsonAttachments}`);
+        console.log(`Total archivos descargados: ${downloadedAttachments}`);
         console.log(`Los archivos adjuntos se han guardado en la carpeta "${path.relative(__dirname, config.attachmentsDir)}"`);
     } catch (error) {
         console.error('Error:', error.message);
