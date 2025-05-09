@@ -17,20 +17,7 @@ const __dirname = path.dirname(__filename);
 const TOKEN_PATH = path.join(__dirname, '../../token.json');
 
 // Verify required environment variables
-const requiredEnvVars = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'];
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingEnvVars.length > 0) {
-    console.error(`
-    Error: Missing required environment variables!
-
-    Please create a .env file in the project root with the following variables:
-    ${missingEnvVars.map(varName => `${varName}="your-value-here"`).join('\n    ')}
-
-    You can use .env.example as a template.
-    `);
-    process.exit(1);
-}
+checkEnvironmentVariables();
 
 // OAuth2 credentials
 const oauth2Client = new google.auth.OAuth2(
@@ -54,6 +41,7 @@ async function loadSavedCredentialsIfExist() {
             try {
                 const drive = google.drive({ version: 'v3', auth: oauth2Client });
                 await drive.files.list({ pageSize: 1 });
+                console.log('Using saved credentials');
                 return true;
             } catch (error) {
                 console.log('Saved credentials are invalid, will refresh');
@@ -65,6 +53,22 @@ async function loadSavedCredentialsIfExist() {
         return false;
     }
     return false;
+}
+
+function checkEnvironmentVariables() {
+    const requiredEnvVars = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'];
+    const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+    if (missingEnvVars.length > 0) {
+        console.error(
+`Error: Missing required environment variables!
+
+Please create a .env file in the project root with the following variables:
+${missingEnvVars.map(varName => `${varName}="your-value-here"`).join('\n    ')}
+You can use .env.example as a template.`);
+
+        process.exit(1);
+    }
 }
 
 /**
