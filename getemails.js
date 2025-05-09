@@ -162,6 +162,7 @@ function hasJsonOrPdfAttachments(email) {
  * @returns {Promise<number>} - Updated count of downloaded attachments
  */
 let dtesFolderId = null; // Cache DTEs folder ID for this run
+let yearMonthFolderId = null; // Cache year-month subfolder ID for this run
 
 async function downloadAttachments(email, emailId, currentCount, progressBar) {
     if (!hasAttachments(email)) {
@@ -242,9 +243,21 @@ async function downloadAttachments(email, emailId, currentCount, progressBar) {
                                 }
                             }
                         }
-                        await uploadFile(attachmentPath, filename, dtesFolderId);
+                        
+                        // Create or get year-month subfolder
+                        if (!yearMonthFolderId) {
+                            const yearMonthName = `${argv.year}-${String(argv.month).padStart(2, '0')}`;
+                            yearMonthFolderId = await createOrGetFolder(yearMonthName, dtesFolderId);
+                            if (argv.verbose) {
+                                console.log(`Using year-month subfolder: ${yearMonthName}`);
+                            }
+                        }
+                        
+                        // Upload to the year-month subfolder
+                        await uploadFile(attachmentPath, filename, yearMonthFolderId);
                         if (argv.verbose) {
-                            console.log(`Uploaded ${filename} to Google Drive DTEs folder.`);
+                            const yearMonthName = `${argv.year}-${String(argv.month).padStart(2, '0')}`;
+                            console.log(`Uploaded ${filename} to Google Drive DTEs/${yearMonthName} folder.`);
                         }
                     } catch (uploadErr) {
                         console.error(`Error uploading ${filename} to Google Drive:`, uploadErr.message);
