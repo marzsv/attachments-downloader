@@ -16,7 +16,7 @@ async function createOrGetFolder(folderName, parentId = null) {
         // Check if folder already exists
         const query = parentId
             ? `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`
-            : `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+            : `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and 'root' in parents and trashed = false`;
 
         const response = await drive.files.list({
             q: query,
@@ -53,10 +53,11 @@ async function createOrGetFolder(folderName, parentId = null) {
 /**
  * Uploads a file to Google Drive
  * @param {string} filePath - Path to the file to upload
- * @param {string} destination - Destination path in Google Drive (e.g., 'folder/subfolder/file.jpg')
+ * @param {string} fileName - Name of the file in Google Drive
+ * @param {string} [parentFolderId=null] - ID of the parent folder (optional)
  * @returns {Promise<string>} - File ID of the uploaded file
  */
-async function uploadFile(filePath, destination) {
+async function uploadFile(filePath, fileName, parentFolderId = null) {
     try {
         if (!fs.existsSync(filePath)) {
             throw new Error(`Source file not found: ${filePath}`);
@@ -65,22 +66,13 @@ async function uploadFile(filePath, destination) {
         console.log(`\nUploading file: ${filePath}`);
         console.log('File size:', fs.statSync(filePath).size, 'bytes');
 
-        // Parse the destination path
-        const parts = destination.split('/').filter(Boolean);
-        const fileName = parts.pop(); // Get the file name
-        let parentId = null;
-
-        // Create folder structure if needed
-        if (parts.length > 0) {
-            for (const folderName of parts) {
-                parentId = await createOrGetFolder(folderName, parentId);
-            }
-            console.log('Folder structure created/verified');
+        if (parentFolderId) {
+            console.log('Using provided parent folder ID');
         }
 
         const fileMetadata = {
             name: fileName,
-            ...(parentId && { parents: [parentId] })
+            ...(parentFolderId && { parents: [parentFolderId] })
         };
 
         const media = {

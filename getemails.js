@@ -1,6 +1,7 @@
 import { getEmails, getEmailById } from './src/gmail/email.js';
 import { google } from 'googleapis';
 import { oauth2Client, getAccessToken } from './src/drive/auth.js';
+import { uploadFile, createOrGetFolder } from './src/drive/files.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,6 +12,17 @@ import cliProgress from 'cli-progress';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load config file if it exists
+let configFile = {};
+const configPath = path.join(__dirname, 'config.json');
+if (fs.existsSync(configPath)) {
+    try {
+        configFile = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch (error) {
+        console.warn('Error loading config file:', error.message);
+    }
+}
 
 // Parse command line arguments
 const argv = yargs(hideBin(process.argv))
@@ -32,6 +44,17 @@ const argv = yargs(hideBin(process.argv))
         type: 'boolean',
         default: false
     })
+    .option('upload-to-drive', {
+        alias: 'u',
+        description: 'Upload downloaded PDFs and JSONs to Google Drive (DTEs folder)',
+        type: 'boolean',
+        default: false
+    })
+    .option('dtes-folder-id', {
+        alias: 'd',
+        description: 'Specify the Google Drive folder ID for the DTEs folder',
+        type: 'string'
+    })
     .check((argv) => {
         if (argv.month < 1 || argv.month > 12) {
             throw new Error('Month must be between 1 and 12');
@@ -45,7 +68,8 @@ const argv = yargs(hideBin(process.argv))
 // Configuration options
 const config = {
     createSubfolders: false, // Set to true to create a subfolder for each email
-    baseAttachmentsDir: path.join(__dirname, 'attachments')
+    baseAttachmentsDir: path.join(__dirname, 'attachments'),
+    uploadToDrive: argv['upload-to-drive'],
 };
 
 // Create base attachments directory if it doesn't exist
@@ -137,6 +161,8 @@ function hasJsonOrPdfAttachments(email) {
  * @param {cliProgress.SingleBar} progressBar - The progress bar instance
  * @returns {Promise<number>} - Updated count of downloaded attachments
  */
+let dtesFolderId = null; // Cache DTEs folder ID for this run
+
 async function downloadAttachments(email, emailId, currentCount, progressBar) {
     if (!hasAttachments(email)) {
         console.log('No attachments found in this email');
@@ -184,6 +210,46 @@ async function downloadAttachments(email, emailId, currentCount, progressBar) {
                 attachmentCount++;
                 // Update progress bar
                 progressBar.update(currentCount + attachmentCount);
+
+                // Upload to Google Drive if enabled and file is PDF or JSON
+                if (config.uploadToDrive && (filename.toLowerCase().endsWith('.pdf') || filename.toLowerCase().endsWith('.json'))) {
+                    try {
+                        // Get folder ID: command line > config file > create new folder
+                        if (!dtesFolderId) {
+                            if (argv['dtes-folder-id']) {
+                                // Use folder ID from command line
+                                dtesFolderId = argv['dtes-folder-id'];
+                                if (argv.verbose) {
+                                    console.log('Using DTEs folder ID from command line');
+                                }
+                                // Save to config file for future use
+                                configFile.dtesFolderId = dtesFolderId;
+                                fs.writeFileSync(configPath, JSON.stringify(configFile, null, 2));
+                            } else if (configFile.dtesFolderId) {
+                                // Use folder ID from config file
+                                dtesFolderId = configFile.dtesFolderId;
+                                if (argv.verbose) {
+                                    console.log('Using DTEs folder ID from config file');
+                                }
+                            } else {
+                                // Create a new folder
+                                dtesFolderId = await createOrGetFolder('DTEs');
+                                // Save the folder ID to config file for future use
+                                configFile.dtesFolderId = dtesFolderId;
+                                fs.writeFileSync(configPath, JSON.stringify(configFile, null, 2));
+                                if (argv.verbose) {
+                                    console.log(`Created new DTEs folder with ID: ${dtesFolderId}`);
+                                }
+                            }
+                        }
+                        await uploadFile(attachmentPath, filename, dtesFolderId);
+                        if (argv.verbose) {
+                            console.log(`Uploaded ${filename} to Google Drive DTEs folder.`);
+                        }
+                    } catch (uploadErr) {
+                        console.error(`Error uploading ${filename} to Google Drive:`, uploadErr.message);
+                    }
+                }
             } catch (error) {
                 console.error(`Error downloading attachment ${filename}:`, error.message);
             }
