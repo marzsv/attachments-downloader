@@ -111,51 +111,15 @@ async function getAccessToken() {
                 const queryObject = url.parse(req.url, true).query;
 
                 if (queryObject.error) {
-                    const errorMessage = `Authentication error: ${queryObject.error}`;
-                    console.error(errorMessage);
-                    res.writeHead(400, { 'Content-Type': 'text/html' });
-                    res.end(`
-                        <h1>Authentication Error</h1>
-                        <p>${errorMessage}</p>
-                        <p>Please make sure:</p>
-                        <ul>
-                            <li>You are using a test user email that was added to the OAuth consent screen</li>
-                            <li>You accepted all required permissions</li>
-                        </ul>
-                        <p>You can close this window and try again.</p>
-                    `);
-                    server.close();
-                    reject(new Error(errorMessage));
+                    handleAuthError(queryObject.error, res, server, reject);
                     return;
                 }
 
                 if (queryObject.code) {
-                    const { tokens } = await oauth2Client.getToken(queryObject.code);
-                    oauth2Client.setCredentials(tokens);
-
-                    // Save the tokens for future use
-                    saveCredentials(tokens);
-
-                    res.writeHead(200, { 'Content-Type': 'text/html' });
-                    res.end(`
-                        <h1>Authentication Successful!</h1>
-                        <p>You have successfully authenticated with Google Drive.</p>
-                        <p>Your credentials have been saved - you won't need to authenticate again.</p>
-                        <p>You can close this window now.</p>
-                    `);
-                    server.close();
-                    resolve();
+                    await handleAuthSuccess(queryObject.code, res, server, resolve);
                 }
             } catch (error) {
-                console.error('Token Error:', error);
-                res.writeHead(500, { 'Content-Type': 'text/html' });
-                res.end(`
-                    <h1>Authentication Failed</h1>
-                    <p>Error: ${error.message}</p>
-                    <p>Please check the console for more details.</p>
-                `);
-                server.close();
-                reject(error);
+                handleServerError(error, res, server, reject);
             }
         }).listen(3000, () => {
             console.log('\nOpening browser for authentication...');
@@ -164,16 +128,93 @@ async function getAccessToken() {
         });
 
         // Handle server errors
-        server.on('error', (error) => {
-            if (error.code === 'EADDRINUSE') {
-                console.error('\nError: Port 3000 is already in use.');
-                console.log('Please make sure no other authentication process is running.');
-            } else {
-                console.error('\nServer error:', error);
-            }
-            reject(error);
-        });
+        server.on('error', (error) => handleServerStartupError(error, reject));
     });
+}
+
+/**
+ * Handle authentication error response
+ * @param {string} error - The error message from query parameters
+ * @param {http.ServerResponse} res - HTTP response object
+ * @param {http.Server} server - HTTP server instance
+ * @param {Function} reject - Promise rejection function
+ */
+function handleAuthError(error, res, server, reject) {
+    const errorMessage = `Authentication error: ${error}`;
+    console.error(errorMessage);
+    res.writeHead(400, { 'Content-Type': 'text/html' });
+    res.end(`
+        <h1>Authentication Error</h1>
+        <p>${errorMessage}</p>
+        <p>Please make sure:</p>
+        <ul>
+            <li>You are using a test user email that was added to the OAuth consent screen</li>
+            <li>You accepted all required permissions</li>
+        </ul>
+        <p>You can close this window and try again.</p>
+    `);
+    server.close();
+    reject(new Error(errorMessage));
+}
+
+/**
+ * Handle successful authentication
+ * @param {string} code - Authorization code from query parameters
+ * @param {http.ServerResponse} res - HTTP response object
+ * @param {http.Server} server - HTTP server instance
+ * @param {Function} resolve - Promise resolution function
+ * @returns {Promise<void>}
+ */
+async function handleAuthSuccess(code, res, server, resolve) {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    // Save the tokens for future use
+    saveCredentials(tokens);
+
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+        <h1>Authentication Successful!</h1>
+        <p>You have successfully authenticated with Google Drive.</p>
+        <p>Your credentials have been saved - you won't need to authenticate again.</p>
+        <p>You can close this window now.</p>
+    `);
+    server.close();
+    resolve();
+}
+
+/**
+ * Handle server errors during authentication
+ * @param {Error} error - The error object
+ * @param {http.ServerResponse} res - HTTP response object
+ * @param {http.Server} server - HTTP server instance
+ * @param {Function} reject - Promise rejection function
+ */
+function handleServerError(error, res, server, reject) {
+    console.error('Token Error:', error);
+    res.writeHead(500, { 'Content-Type': 'text/html' });
+    res.end(`
+        <h1>Authentication Failed</h1>
+        <p>Error: ${error.message}</p>
+        <p>Please check the console for more details.</p>
+    `);
+    server.close();
+    reject(error);
+}
+
+/**
+ * Handle server startup errors
+ * @param {Error} error - The error object
+ * @param {Function} reject - Promise rejection function
+ */
+function handleServerStartupError(error, reject) {
+    if (error.code === 'EADDRINUSE') {
+        console.error('\nError: Port 3000 is already in use.');
+        console.log('Please make sure no other authentication process is running.');
+    } else {
+        console.error('\nServer error:', error);
+    }
+    reject(error);
 }
 
 // Initialize the Google Drive API with auto token refresh
