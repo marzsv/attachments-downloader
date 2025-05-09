@@ -8,6 +8,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { createSubfolder, removeSubfolder } from './src/utils.js';
 import cliProgress from 'cli-progress';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -245,7 +246,7 @@ async function main() {
         await getAccessToken();
 
         // Calculate start and end dates based on provided month and year
-        const startDate = new Date(argv.year, argv.month - 1, 1, 0, 0, 0);
+        const startDate = new Date(argv.year, argv.month - 1, 1);
         const endDate = new Date(argv.year, argv.month, 0, 23, 59, 59);
 
         const monthYear = startDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
